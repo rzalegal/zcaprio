@@ -66,9 +66,9 @@ impl From<BirthDay> for String {
 
 /// Classroom-only raw identity input.
 ///
-/// `display_name` is display-only and is deliberately absent from credentials
-/// and other serializable protocol types. This type must not be persisted.
-#[derive(Clone, Debug, Eq, PartialEq)]
+/// `display_name` is display-only and is deliberately absent from credentials.
+/// This serde-ready classroom input must not be persisted.
+#[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct RawDemoIdentity {
     /// A display-only name for the classroom demo.
     pub display_name: String,

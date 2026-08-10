@@ -1,4 +1,4 @@
-use zkp_primitives::{AgePolicy, BirthDay, IssuerKeyFingerprint, VerifierScope};
+use zkp_primitives::{AgePolicy, BirthDay, IssuerKeyFingerprint, RawDemoIdentity, VerifierScope};
 
 fn scope(value: &str) -> VerifierScope {
     VerifierScope::new(value.into()).unwrap()
@@ -18,15 +18,15 @@ fn derives_the_18_year_cutoff_from_the_verifier_date() {
 }
 
 #[test]
-fn uses_february_28_for_a_leap_day_birth_in_a_non_leap_threshold_year() {
+fn uses_february_28_for_a_leap_day_cutoff_in_a_non_leap_threshold_year() {
     let policy = AgePolicy::from_as_of(
-        BirthDay::parse_iso("2019-02-28").unwrap(),
+        BirthDay::parse_iso("2020-02-29").unwrap(),
         scope("campus-bar"),
         IssuerKeyFingerprint::new("edu-issuer-v1".into()).unwrap(),
     )
     .unwrap();
 
-    assert_eq!(policy.cutoff_day().to_iso_string(), "2001-02-28");
+    assert_eq!(policy.cutoff_day().to_iso_string(), "2002-02-28");
 }
 
 #[test]
@@ -60,4 +60,17 @@ fn deserialization_preserves_the_protocol_invariants() {
     assert!(serde_json::from_value::<AgePolicy>(encoded).is_err());
     assert!(serde_json::from_str::<BirthDay>("\"1899-12-31\"").is_err());
     assert!(serde_json::from_str::<VerifierScope>("\"  \"").is_err());
+}
+
+#[test]
+fn raw_demo_identity_serializes_with_a_validated_birth_date() {
+    let identity = RawDemoIdentity::new(
+        "Demo Learner".into(),
+        BirthDay::parse_iso("2008-08-11").unwrap(),
+    );
+
+    let encoded = serde_json::to_string(&identity).unwrap();
+    let decoded: RawDemoIdentity = serde_json::from_str(&encoded).unwrap();
+
+    assert_eq!(decoded, identity);
 }
