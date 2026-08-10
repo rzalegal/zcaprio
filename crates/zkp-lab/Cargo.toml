@@ -1,0 +1,11 @@
+[package]
+name = "zkp-lab"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+axum.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+tower.workspace = true
