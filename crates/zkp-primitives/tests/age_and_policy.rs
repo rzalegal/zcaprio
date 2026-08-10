@@ -1,0 +1,63 @@
+use zkp_primitives::{AgePolicy, BirthDay, IssuerKeyFingerprint, VerifierScope};
+
+fn scope(value: &str) -> VerifierScope {
+    VerifierScope::new(value.into()).unwrap()
+}
+
+#[test]
+fn derives_the_18_year_cutoff_from_the_verifier_date() {
+    let as_of = BirthDay::parse_iso("2026-08-11").unwrap();
+    let policy = AgePolicy::from_as_of(
+        as_of,
+        scope("campus-bar"),
+        IssuerKeyFingerprint::new("edu-issuer-v1".into()).unwrap(),
+    )
+    .unwrap();
+
+    assert_eq!(policy.cutoff_day().to_iso_string(), "2008-08-11");
+}
+
+#[test]
+fn uses_february_28_for_a_leap_day_birth_in_a_non_leap_threshold_year() {
+    let policy = AgePolicy::from_as_of(
+        BirthDay::parse_iso("2019-02-28").unwrap(),
+        scope("campus-bar"),
+        IssuerKeyFingerprint::new("edu-issuer-v1".into()).unwrap(),
+    )
+    .unwrap();
+
+    assert_eq!(policy.cutoff_day().to_iso_string(), "2001-02-28");
+}
+
+#[test]
+fn rejects_invalid_and_out_of_range_dates_with_a_stable_code() {
+    for value in ["2026-02-29", "1899-12-31", "2100-01-01"] {
+        let error = BirthDay::parse_iso(value).unwrap_err();
+
+        assert_eq!(error.code(), "invalid_date");
+    }
+}
+
+#[test]
+fn blank_scope_is_a_safe_validation_error() {
+    let error = VerifierScope::new("  ".into()).unwrap_err();
+
+    assert_eq!(error.code(), "empty_verifier_scope");
+    assert!(!error.to_string().contains("birth"));
+}
+
+#[test]
+fn deserialization_preserves_the_protocol_invariants() {
+    let policy = AgePolicy::from_as_of(
+        BirthDay::parse_iso("2026-08-11").unwrap(),
+        scope("campus-bar"),
+        IssuerKeyFingerprint::new("edu-issuer-v1".into()).unwrap(),
+    )
+    .unwrap();
+    let mut encoded = serde_json::to_value(policy).unwrap();
+    encoded["cutoff_day"] = serde_json::Value::String("2008-08-10".into());
+
+    assert!(serde_json::from_value::<AgePolicy>(encoded).is_err());
+    assert!(serde_json::from_str::<BirthDay>("\"1899-12-31\"").is_err());
+    assert!(serde_json::from_str::<VerifierScope>("\"  \"").is_err());
+}
