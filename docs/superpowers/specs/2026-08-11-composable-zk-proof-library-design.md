@@ -62,7 +62,7 @@ The verifier is configured out of band for the expected verification policy and 
 
 ## Compilation model
 
-`Proof` objects are lazy recipes. The first release uses a single final compilation boundary:
+`Proof` objects are lazy recipes. The first release uses a single final compilation boundary inside the `zcaprio::groth16` module:
 
 1. Each credential proof contributes a private witness, credential commitment opening, issuer-signature relation, and claim-specific circuit fragment.
 2. `.and()` joins both child relations into one constraint system.
@@ -89,7 +89,7 @@ The final verification policy selects the public thresholds or roles required by
 
 ## Proof backend
 
-`Groth16Prover` and `Groth16Verifier` are the first concrete backend objects. A proving key and verifying key are generated for one verifier-owned policy shape. The verifier keeps the policy and verifying key together; the prover receives compatible proving material through its backend object.
+`Groth16Prover` and `Groth16Verifier` are the first concrete backend objects. They live in `zcaprio::groth16`, keeping proof plans, circuit fragments, witnesses, and backend details inside one library package. A proving key and verifying key are generated for one verifier-owned policy shape. The verifier keeps the policy and verifying key together; the prover receives compatible proving material through its backend object.
 
 Proof objects do not expose Arkworks types. The backend owns R1CS lowering, key serialization, proof serialization, and verification. `ProofArtifact` exposes a stable library encoding and opaque verification behavior.
 
