@@ -1367,6 +1367,7 @@ version = "0.1.0"
 dependencies = [
  "ark-bn254",
  "ark-crypto-primitives",
+ "ark-ec",
  "ark-ed-on-bn254",
  "ark-ff",
  "ark-serialize",

@@ -1,4 +1,4 @@
-use core::fmt;
+use core::{fmt, ops::Mul};
 use std::sync::OnceLock;
 
 use ark_bn254::Fr;
@@ -6,9 +6,11 @@ use ark_crypto_primitives::signature::{
     SignatureScheme,
     schnorr::{Parameters, Schnorr, SecretKey, Signature},
 };
+use ark_ec::{AffineRepr, CurveGroup};
 use ark_ed_on_bn254::{EdwardsAffine, EdwardsProjective, Fr as JubJubScalar};
+use ark_ff::{Field, UniformRand};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use blake2::Blake2s256;
+use blake2::{Blake2s256, Digest};
 use rand::{CryptoRng, Rng, SeedableRng, rngs::OsRng};
 use rand_chacha::ChaCha20Rng;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -83,20 +85,27 @@ impl IssuerKeyPair {
     /// Issues a schema-v1 credential over the supplied commitments.
     pub fn issue(&self, age: AgeCommitment, owner: OwnerCommitment) -> AgeCredential {
         let message = credential_message(age, owner, AGE_CREDENTIAL_SCHEMA_V1);
-        let signature = IssuerSchnorr::sign(
-            schnorr_parameters(),
-            &self.secret_key,
-            &message_bytes(&message),
-            &mut OsRng,
-        )
-        .expect("Schnorr signing with in-memory values cannot fail");
+        let signature = loop {
+            let random_scalar = JubJubScalar::rand(&mut OsRng);
+            let commitment = schnorr_parameters()
+                .generator
+                .mul(random_scalar)
+                .into_affine();
+            let transcript = SchnorrTranscript::from_commitment(commitment, &message);
+            if let Some(verifier_challenge) = transcript.challenge() {
+                break IssuerSignature {
+                    prover_response: random_scalar - (verifier_challenge * self.secret_key.0),
+                    verifier_challenge,
+                };
+            }
+        };
 
         AgeCredential {
             issuer_key_fingerprint: self.public_key.fingerprint(),
             schema_version: AGE_CREDENTIAL_SCHEMA_V1,
             age_commitment: age,
             owner_commitment: owner,
-            signature: signature.into(),
+            signature,
         }
     }
 }
@@ -112,6 +121,19 @@ impl fmt::Debug for IssuerKeyPair {
 }
 
 impl IssuerPublicKey {
+    /// Decodes a canonical, non-identity issuer public key from hexadecimal.
+    pub fn from_hex(value: &str) -> Result<Self, PrimitiveError> {
+        let encoded = encoding::bytes(value)?;
+        let mut input = encoded.as_slice();
+        let point = EdwardsAffine::deserialize_compressed(&mut input)
+            .map_err(|_| PrimitiveError::InvalidEncoding)?;
+        if !input.is_empty() || point.is_zero() || encoding::canonical(&point) != encoded {
+            return Err(PrimitiveError::InvalidEncoding);
+        }
+
+        Ok(Self(point))
+    }
+
     /// Returns this public key's stable canonical fingerprint.
     pub fn fingerprint(&self) -> IssuerKeyFingerprint {
         IssuerKeyFingerprint::new(encoding::hex(&encoding::canonical(&self.0)))
@@ -121,6 +143,10 @@ impl IssuerPublicKey {
     /// Returns the public key's affine coordinates for circuit allocation.
     pub fn coordinates(&self) -> (Fr, Fr) {
         (self.0.x, self.0.y)
+    }
+
+    fn is_identity(&self) -> bool {
+        self.0.is_zero()
     }
 }
 
@@ -142,6 +168,9 @@ impl AgeCredential {
         if self.schema_version != AGE_CREDENTIAL_SCHEMA_V1 {
             return Err(PrimitiveError::UnsupportedSchema);
         }
+        if issuer.is_identity() {
+            return Err(PrimitiveError::InvalidCredential);
+        }
         if self.issuer_key_fingerprint != issuer.fingerprint() {
             return Err(PrimitiveError::InvalidCredential);
         }
@@ -151,14 +180,7 @@ impl AgeCredential {
             self.owner_commitment,
             self.schema_version,
         );
-        let signature = Signature::<EdwardsProjective>::from(&self.signature);
-        let is_valid = IssuerSchnorr::verify(
-            schnorr_parameters(),
-            &issuer.0,
-            &message_bytes(&message),
-            &signature,
-        )
-        .map_err(|_| PrimitiveError::InvalidCredential)?;
+        let is_valid = self.signature.is_valid(issuer, &message);
 
         is_valid
             .then_some(())
@@ -177,6 +199,19 @@ pub fn credential_message(
         owner.field_element(),
         Fr::from(schema_version),
     ]
+}
+
+/// Returns the exact Arkworks Schnorr challenge input for a credential relation.
+///
+/// The result is `salt || compressed(commitment) || u64_le(message_length) || message`,
+/// where `commitment = generator * response + public_key * challenge` and `message`
+/// is the three canonical field encodings returned by [`credential_message`].
+pub fn credential_challenge_transcript(
+    key: &IssuerPublicKey,
+    signature: &IssuerSignature,
+    message: &[Fr; 3],
+) -> Vec<u8> {
+    SchnorrTranscript::from_signature(key, signature, message).bytes()
 }
 
 /// Returns the fixed Schnorr generator coordinates shared by native and circuit code.
@@ -223,9 +258,7 @@ impl<'de> Deserialize<'de> for IssuerPublicKey {
         D: Deserializer<'de>,
     {
         let value = String::deserialize(deserializer)?;
-        encoding::parse(&value)
-            .map(Self)
-            .map_err(|error| serde::de::Error::custom(error.code()))
+        Self::from_hex(&value).map_err(|error| serde::de::Error::custom(error.code()))
     }
 }
 
@@ -270,6 +303,45 @@ impl IssuerSignature {
             prover_response,
             verifier_challenge,
         })
+    }
+
+    fn is_valid(&self, key: &IssuerPublicKey, message: &[Fr; 3]) -> bool {
+        SchnorrTranscript::from_signature(key, self, message)
+            .challenge()
+            .is_some_and(|challenge| challenge == self.verifier_challenge)
+    }
+}
+
+struct SchnorrTranscript {
+    bytes: Vec<u8>,
+}
+
+impl SchnorrTranscript {
+    fn from_commitment(commitment: EdwardsAffine, message: &[Fr; 3]) -> Self {
+        let mut bytes = encoding::canonical(&schnorr_parameters().salt);
+        bytes.extend(encoding::canonical(&commitment));
+        bytes.extend(encoding::canonical(&message_bytes(message).as_slice()));
+        Self { bytes }
+    }
+
+    fn from_signature(
+        key: &IssuerPublicKey,
+        signature: &IssuerSignature,
+        message: &[Fr; 3],
+    ) -> Self {
+        let mut commitment = schnorr_parameters()
+            .generator
+            .mul(signature.prover_response);
+        commitment += key.0.mul(signature.verifier_challenge);
+        Self::from_commitment(commitment.into_affine(), message)
+    }
+
+    fn bytes(&self) -> Vec<u8> {
+        self.bytes.clone()
+    }
+
+    fn challenge(&self) -> Option<JubJubScalar> {
+        JubJubScalar::from_random_bytes(&Blake2s256::digest(&self.bytes))
     }
 }
 

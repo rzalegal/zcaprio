@@ -47,6 +47,30 @@ fn blank_scope_is_a_safe_validation_error() {
 }
 
 #[test]
+fn verifier_scope_accepts_only_the_injective_protocol_alphabet() {
+    for invalid in [
+        "EU",
+        "_issuer",
+        "issuer space",
+        "issuer.",
+        "issuer\0",
+        "a".repeat(31).as_str(),
+    ] {
+        assert!(
+            VerifierScope::new(invalid.to_owned()).is_err(),
+            "{invalid:?} must be rejected"
+        );
+    }
+
+    assert!(VerifierScope::new("issuer-01_eu".to_owned()).is_ok());
+
+    assert_ne!(
+        scope("passport-check").field_element(),
+        scope("residence-check").field_element()
+    );
+}
+
+#[test]
 fn deserialization_preserves_the_protocol_invariants() {
     let policy = AgePolicy::from_as_of(
         BirthDay::parse_iso("2026-08-11").unwrap(),

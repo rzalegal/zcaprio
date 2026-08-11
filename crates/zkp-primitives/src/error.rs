@@ -13,6 +13,8 @@ pub enum PrimitiveError {
     InvalidDate,
     /// A verifier scope is blank after trimming whitespace.
     EmptyVerifierScope,
+    /// A verifier scope is not in the protocol's injective ASCII form.
+    InvalidVerifierScope,
     /// A payload declares an unsupported protocol schema.
     UnsupportedSchema,
     /// A payload is not canonically encoded.
@@ -33,6 +35,7 @@ impl PrimitiveError {
         match self {
             Self::InvalidDate => "invalid_date",
             Self::EmptyVerifierScope => "empty_verifier_scope",
+            Self::InvalidVerifierScope => "invalid_verifier_scope",
             Self::UnsupportedSchema => "unsupported_schema",
             Self::InvalidEncoding => "invalid_encoding",
             Self::InvalidCredential => "invalid_credential",
@@ -47,6 +50,7 @@ impl PrimitiveError {
         match self {
             Self::InvalidDate => "The date is invalid.",
             Self::EmptyVerifierScope => "The verifier scope is required.",
+            Self::InvalidVerifierScope => "The verifier scope is invalid.",
             Self::UnsupportedSchema => "The protocol schema is unsupported.",
             Self::InvalidEncoding => "The protocol encoding is invalid.",
             Self::InvalidCredential => "The credential is invalid.",

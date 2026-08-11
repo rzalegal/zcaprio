@@ -44,8 +44,7 @@ impl AgeSalt {
         Self(Fr::rand(&mut OsRng))
     }
 
-    /// Returns the salt as the protocol's scalar field element.
-    pub const fn field_element(&self) -> Fr {
+    pub(crate) const fn field_element(&self) -> Fr {
         self.0
     }
 }
@@ -56,8 +55,7 @@ impl WalletSecret {
         Self(Fr::rand(&mut OsRng))
     }
 
-    /// Returns the secret as the protocol's scalar field element.
-    pub const fn field_element(&self) -> Fr {
+    pub(crate) const fn field_element(&self) -> Fr {
         self.0
     }
 }
@@ -154,7 +152,7 @@ fn domain(label: &[u8]) -> Fr {
 }
 
 fn scope_field(scope: &VerifierScope) -> Fr {
-    Fr::from_le_bytes_mod_order(scope.value().as_bytes())
+    scope.field_element()
 }
 
 macro_rules! field_serde {
@@ -196,8 +194,6 @@ macro_rules! field_serde {
     };
 }
 
-field_serde!(AgeSalt);
-field_serde!(WalletSecret);
 field_serde!(AgeCommitment);
 field_serde!(OwnerCommitment);
 field_serde!(Nullifier);

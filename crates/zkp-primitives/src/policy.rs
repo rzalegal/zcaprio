@@ -1,3 +1,5 @@
+use ark_bn254::Fr;
+use ark_ff::PrimeField;
 use chrono::{Datelike, NaiveDate};
 use serde::{Deserialize, Serialize};
 
@@ -9,11 +11,18 @@ use crate::{BirthDay, PrimitiveError};
 pub struct VerifierScope(String);
 
 impl VerifierScope {
-    /// Validates and normalizes a verifier scope.
+    /// Validates a verifier scope in the protocol's canonical ASCII form.
     pub fn new(value: String) -> Result<Self, PrimitiveError> {
-        let value = value.trim().to_owned();
-        if value.is_empty() {
+        if value.trim().is_empty() {
             return Err(PrimitiveError::EmptyVerifierScope);
+        }
+        if value.len() > 30
+            || !value
+                .bytes()
+                .enumerate()
+                .all(|(index, byte)| scope_byte(index, byte))
+        {
+            return Err(PrimitiveError::InvalidVerifierScope);
         }
 
         Ok(Self(value))
@@ -23,6 +32,18 @@ impl VerifierScope {
     pub fn value(&self) -> &str {
         &self.0
     }
+
+    /// Packs this validated scope injectively into the protocol scalar field.
+    pub fn field_element(&self) -> Fr {
+        let mut encoded = Vec::with_capacity(self.0.len() + 1);
+        encoded.push(self.0.len() as u8);
+        encoded.extend_from_slice(self.0.as_bytes());
+        Fr::from_le_bytes_mod_order(&encoded)
+    }
+}
+
+fn scope_byte(index: usize, byte: u8) -> bool {
+    byte.is_ascii_lowercase() || byte.is_ascii_digit() || (index > 0 && matches!(byte, b'-' | b'_'))
 }
 
 impl TryFrom<String> for VerifierScope {

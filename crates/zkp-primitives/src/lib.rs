@@ -18,7 +18,8 @@ pub use encoding::{bytes, hex};
 pub use error::PrimitiveError;
 pub use issuer::{
     AGE_CREDENTIAL_SCHEMA_V1, AgeCredential, IssuerKeyPair, IssuerPublicKey, IssuerSignature,
-    credential_message, issuer_generator_coordinates, issuer_signature_salt,
+    credential_challenge_transcript, credential_message, issuer_generator_coordinates,
+    issuer_signature_salt,
 };
 pub use policy::{AgePolicy, IssuerKeyFingerprint, VerifierScope};
 pub use proof::{VerificationResult, VerificationStatus};

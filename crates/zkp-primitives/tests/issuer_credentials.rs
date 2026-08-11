@@ -1,33 +1,24 @@
 use ark_bn254::Fr;
-use ark_ff::UniformRand;
+use ark_ed_on_bn254::{EdwardsAffine, Fr as JubJubScalar};
 use ark_serialize::CanonicalSerialize;
 use rand_chacha::{ChaCha20Rng, rand_core::SeedableRng};
 use serde_json::Value;
 use zcaprio::{
-    AgeCommitment, AgeCredential, AgeSalt, BirthDay, IssuerKeyPair, OwnerCommitment, WalletSecret,
-    commit_age, commit_owner, hex,
+    AgeCommitment, AgeCredential, AgeSalt, BirthDay, IssuerKeyPair, IssuerSignature,
+    OwnerCommitment, WalletSecret, commit_age, commit_owner, credential_challenge_transcript,
+    credential_message, hex,
 };
 
 fn day(value: &str) -> BirthDay {
     BirthDay::parse_iso(value).expect("fixture date is valid")
 }
 
-fn fixed_field(seed: u64) -> String {
-    let mut rng = ChaCha20Rng::seed_from_u64(seed);
-    let value = Fr::rand(&mut rng);
-    let mut bytes = Vec::new();
-    value
-        .serialize_compressed(&mut bytes)
-        .expect("field serialization succeeds");
-    hex(&bytes)
+fn age_salt() -> AgeSalt {
+    AgeSalt::generate()
 }
 
-fn fixed_age_salt(seed: u64) -> AgeSalt {
-    serde_json::from_value(Value::String(fixed_field(seed))).expect("fixture salt is canonical")
-}
-
-fn fixed_wallet_secret(seed: u64) -> WalletSecret {
-    serde_json::from_value(Value::String(fixed_field(seed))).expect("fixture secret is canonical")
+fn wallet_secret() -> WalletSecret {
+    WalletSecret::generate()
 }
 
 fn fixed_issuer(seed: u64) -> IssuerKeyPair {
@@ -35,12 +26,42 @@ fn fixed_issuer(seed: u64) -> IssuerKeyPair {
     IssuerKeyPair::generate_with_rng(&mut rng)
 }
 
-fn age_commitment(seed: u64) -> AgeCommitment {
-    commit_age(day("2000-01-02"), &fixed_age_salt(seed))
+fn age_commitment(_seed: u64) -> AgeCommitment {
+    commit_age(day("2000-01-02"), &age_salt())
 }
 
-fn owner_commitment(seed: u64) -> OwnerCommitment {
-    commit_owner(&fixed_wallet_secret(seed))
+fn owner_commitment(_seed: u64) -> OwnerCommitment {
+    commit_owner(&wallet_secret())
+}
+
+fn field_hex(value: u64) -> String {
+    let mut encoded = Vec::new();
+    Fr::from(value)
+        .serialize_compressed(&mut encoded)
+        .expect("field encodes in memory");
+    hex(&encoded)
+}
+
+fn scalar_hex(value: u64) -> String {
+    let mut encoded = Vec::new();
+    JubJubScalar::from(value)
+        .serialize_compressed(&mut encoded)
+        .expect("scalar encodes in memory");
+    hex(&encoded)
+}
+
+fn commitment(value: u64) -> AgeCommitment {
+    serde_json::from_str(&format!("\"{}\"", field_hex(value)))
+        .expect("commitment fixture is canonical")
+}
+
+fn owner(value: u64) -> OwnerCommitment {
+    serde_json::from_str(&format!("\"{}\"", field_hex(value))).expect("owner fixture is canonical")
+}
+
+fn signature(response: u64, challenge: u64) -> IssuerSignature {
+    let encoded = format!("\"{}{}\"", scalar_hex(response), scalar_hex(challenge));
+    serde_json::from_str(&encoded).expect("signature fixture is canonical")
 }
 
 #[test]
@@ -125,4 +146,29 @@ fn credential_and_public_key_round_trip_through_canonical_hex() {
     let decoded: AgeCredential = serde_json::from_str(&credential_json).unwrap();
     assert_eq!(decoded, credential);
     assert!(decoded.verify(&public_key).is_ok());
+}
+
+#[test]
+fn rejects_an_identity_issuer_public_key() {
+    let mut encoded = Vec::new();
+    EdwardsAffine::zero()
+        .serialize_compressed(&mut encoded)
+        .expect("identity encodes in memory");
+    let identity = format!("\"{}\"", hex(&encoded));
+
+    assert!(serde_json::from_str::<zcaprio::IssuerPublicKey>(&identity).is_err());
+}
+
+#[test]
+fn transcript_matches_the_pinned_arkworks_wire_vector() {
+    let issuer = fixed_issuer(101);
+    let signature = signature(5, 7);
+    let message = credential_message(commitment(11), owner(13), 1);
+
+    let transcript = credential_challenge_transcript(&issuer.public_key(), &signature, &message);
+
+    assert_eq!(
+        hex(&transcript),
+        "0f821bc0f51832d8a2aefd20d1207c375b38639709ecf683913f7b1336a9ecdea1cdc809be3d48c7e6498086d00260565cac06fd16ed915fd7943a2f74a4312160000000000000000b000000000000000000000000000000000000000000000000000000000000000d000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000"
+    );
 }
