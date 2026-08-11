@@ -36,36 +36,8 @@ impl Country {
         std::str::from_utf8(&self.0).expect("validated country code is ASCII")
     }
 
-    pub(crate) fn is_eu(&self) -> bool {
-        matches!(
-            self.code(),
-            "AT" | "BE"
-                | "BG"
-                | "HR"
-                | "CY"
-                | "CZ"
-                | "DK"
-                | "EE"
-                | "FI"
-                | "FR"
-                | "DE"
-                | "GR"
-                | "HU"
-                | "IE"
-                | "IT"
-                | "LV"
-                | "LT"
-                | "LU"
-                | "MT"
-                | "NL"
-                | "PL"
-                | "PT"
-                | "RO"
-                | "SK"
-                | "SI"
-                | "ES"
-                | "SE"
-        )
+    pub(crate) fn field_element(&self) -> ark_bn254::Fr {
+        ark_bn254::Fr::from(u64::from(u16::from_be_bytes(self.0)))
     }
 }
 
@@ -90,6 +62,16 @@ pub enum Role {
     Student,
     /// A visitor.
     Visitor,
+}
+
+impl Role {
+    pub(crate) fn field_element(self) -> ark_bn254::Fr {
+        ark_bn254::Fr::from(match self {
+            Self::Staff => 1,
+            Self::Student => 2,
+            Self::Visitor => 3,
+        })
+    }
 }
 
 /// A claim requiring an age at or above a whole-year threshold.

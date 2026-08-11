@@ -10,10 +10,11 @@ use ark_ff::{PrimeField, UniformRand};
 use rand::rngs::OsRng;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::{BirthDay, PrimitiveError, VerifierScope, encoding};
+use crate::{BirthDay, Country, PrimitiveError, Role, VerifierScope, encoding};
 
 const AGE_DOMAIN: &[u8] = b"ZKPLAB_AGE_V1";
 const OWNER_DOMAIN: &[u8] = b"ZKPLAB_OWNER_V1";
+const ATTRIBUTE_DOMAIN: &[u8] = b"ZKPLAB_ATTR_V2";
 const NULLIFIER_DOMAIN: &[u8] = b"ZKPLAB_NULLIFIER_V1";
 
 static POSEIDON_PARAMETERS: OnceLock<PoseidonConfig<Fr>> = OnceLock::new();
@@ -33,6 +34,10 @@ pub struct AgeCommitment(Fr);
 /// A domain-separated commitment to a holder's wallet secret.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct OwnerCommitment(Fr);
+
+/// A domain-separated commitment to the non-age attributes in a credential.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AttributeCommitment(Fr);
 
 /// A scope-specific value used to detect replay without linking verifiers.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -84,6 +89,18 @@ impl OwnerCommitment {
     }
 }
 
+impl AttributeCommitment {
+    /// Checks whether private country, role, and salt open this commitment.
+    pub fn matches(&self, country: &Country, role: Role, salt: &AgeSalt) -> bool {
+        *self == commit_attributes(country, role, salt)
+    }
+
+    /// Returns the commitment as the protocol's scalar field element.
+    pub const fn field_element(self) -> Fr {
+        self.0
+    }
+}
+
 impl Nullifier {
     /// Returns the nullifier as the protocol's scalar field element.
     pub const fn field_element(self) -> Fr {
@@ -120,6 +137,16 @@ pub fn commit_owner(secret: &WalletSecret) -> OwnerCommitment {
     ]))
 }
 
+/// Creates a blinded, domain-separated commitment to a credential country and role.
+pub fn commit_attributes(country: &Country, role: Role, salt: &AgeSalt) -> AttributeCommitment {
+    AttributeCommitment(poseidon_hash(&[
+        domain(ATTRIBUTE_DOMAIN),
+        country.field_element(),
+        role.field_element(),
+        salt.field_element(),
+    ]))
+}
+
 /// Derives a deterministic, verifier-scoped nullifier.
 pub fn derive_nullifier(secret: &WalletSecret, scope: &VerifierScope) -> Nullifier {
     Nullifier(poseidon_hash(&[
@@ -132,6 +159,18 @@ pub fn derive_nullifier(secret: &WalletSecret, scope: &VerifierScope) -> Nullifi
 /// Returns the fixed Poseidon parameters shared by native and circuit code.
 pub fn protocol_poseidon_parameters() -> PoseidonConfig<Fr> {
     poseidon_parameters().clone()
+}
+
+pub(crate) fn age_domain() -> Fr {
+    domain(AGE_DOMAIN)
+}
+
+pub(crate) fn owner_domain() -> Fr {
+    domain(OWNER_DOMAIN)
+}
+
+pub(crate) fn attribute_domain() -> Fr {
+    domain(ATTRIBUTE_DOMAIN)
 }
 
 fn poseidon_hash(input: &[Fr]) -> Fr {
@@ -196,4 +235,5 @@ macro_rules! field_serde {
 
 field_serde!(AgeCommitment);
 field_serde!(OwnerCommitment);
+field_serde!(AttributeCommitment);
 field_serde!(Nullifier);

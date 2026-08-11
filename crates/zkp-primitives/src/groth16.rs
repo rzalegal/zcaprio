@@ -1,22 +1,23 @@
 use std::sync::Arc;
 
-use ark_bn254::{Bn254, Fr};
+use ark_bn254::Bn254;
 use ark_crypto_primitives::snark::SNARK;
 use ark_groth16::{Groth16, PreparedVerifyingKey, Proof as GrothProof, ProvingKey, VerifyingKey};
-use ark_r1cs_std::{
-    boolean::Boolean,
-    prelude::{AllocVar, EqGadget},
-};
-use ark_relations::gr1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use chrono::{Datelike, NaiveDate};
 use rand::rngs::OsRng;
 
-use crate::proof::{DirectProofPlan, ProofPlan};
 use crate::{
-    BirthDay, ClaimKind, Credential, ProofArtifact, ProofError, ProofRequest, Prover, Verification,
-    Verifier,
+    BirthDay, Proof, ProofArtifact, ProofError, ProofRequest, Prover, Verification, Verifier,
 };
+
+mod circuit;
+mod commitment;
+mod signature;
+mod template;
+
+use circuit::ProofCircuit;
+use template::CircuitTemplate;
 
 /// A verifier-owned policy for evaluating credential claims at one date.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -43,11 +44,22 @@ pub struct Groth16Backend {
 }
 
 impl Groth16Backend {
-    /// Generates fresh Groth16 material for `policy` using operating-system randomness.
-    pub fn setup(policy: VerificationPolicy) -> Result<Self, ProofError> {
-        let proving_key =
-            Groth16::<Bn254>::generate_random_parameters_with_reduction(RootCircuit, &mut OsRng)
-                .map_err(|_| ProofError::IncompatibleBackend)?;
+    /// Generates fresh Groth16 material for the opaque `proof` and `policy`.
+    ///
+    /// The supplied proof is compiled to a verifier-held template. Its issuer
+    /// keys, claims, and composition shape are fixed in the generated keys and
+    /// never included in a proof artifact.
+    pub fn setup(proof: &Proof, policy: VerificationPolicy) -> Result<Self, ProofError> {
+        let template = CircuitTemplate::from_plan(&proof.request().plan)?;
+        let proving_key = Groth16::<Bn254>::generate_random_parameters_with_reduction(
+            ProofCircuit {
+                policy: policy.clone(),
+                template: template.clone(),
+                plan: None,
+            },
+            &mut OsRng,
+        )
+        .map_err(|_| ProofError::IncompatibleBackend)?;
         let verifier = Groth16Verifier {
             policy: policy.clone(),
             verifying_key: Arc::new(proving_key.vk.clone()),
@@ -60,6 +72,7 @@ impl Groth16Backend {
         Ok(Self {
             prover: Groth16Prover {
                 policy,
+                template,
                 proving_key: Arc::new(proving_key),
             },
             verifier,
@@ -80,21 +93,27 @@ impl Groth16Backend {
 /// The private proving endpoint of a Groth16 backend.
 pub struct Groth16Prover {
     policy: VerificationPolicy,
+    template: CircuitTemplate,
     proving_key: Arc<ProvingKey<Bn254>>,
 }
 
 impl Prover for Groth16Prover {
     fn prove(&self, request: &ProofRequest) -> Result<Box<dyn ProofArtifact>, ProofError> {
-        let valid = Preflight {
-            policy: &self.policy,
+        if !self.template.accepts(&request.plan) {
+            return Err(ProofError::IncompatibleBackend);
         }
-        .valid(&request.plan)?;
-        if !valid {
+
+        let circuit = ProofCircuit {
+            policy: self.policy.clone(),
+            template: self.template.clone(),
+            plan: Some(request.plan.clone()),
+        };
+        if !circuit.is_satisfied().map_err(|_| ProofError::Unprovable)? {
             return Err(ProofError::Unprovable);
         }
 
         let proof = Groth16::<Bn254>::create_random_proof_with_reduction(
-            RootCircuit,
+            circuit,
             self.proving_key.as_ref(),
             &mut OsRng,
         )
@@ -156,56 +175,6 @@ impl ProofArtifact for OpaqueGroth16Artifact {
 
     fn verify(&self, verifier: &dyn Verifier) -> Result<Verification, ProofError> {
         verifier.verify(&self.bytes()?)
-    }
-}
-
-struct RootCircuit;
-
-impl ConstraintSynthesizer<Fr> for RootCircuit {
-    fn generate_constraints(self, cs: ConstraintSystemRef<Fr>) -> Result<(), SynthesisError> {
-        let root = Boolean::new_witness(cs, || Ok(true))?;
-        root.enforce_equal(&Boolean::constant(true))
-    }
-}
-
-struct Preflight<'policy> {
-    policy: &'policy VerificationPolicy,
-}
-
-impl Preflight<'_> {
-    fn valid(&self, plan: &ProofPlan) -> Result<bool, ProofError> {
-        match plan {
-            ProofPlan::Direct(direct) => self.direct(direct),
-            ProofPlan::Conjunction(left, right) => Ok(self.valid(left)? && self.valid(right)?),
-            ProofPlan::Disjunction(left, right) => Ok(self.valid(left)? || self.valid(right)?),
-        }
-    }
-
-    fn direct(&self, direct: &DirectProofPlan) -> Result<bool, ProofError> {
-        let credential = direct
-            .evidence
-            .as_ref()
-            .ok_or(ProofError::InvalidCredential)?;
-        if !credential.is_valid() || credential.hash() != direct.credential {
-            return Err(ProofError::InvalidCredential);
-        }
-
-        match direct.claim.kind() {
-            ClaimKind::AgeAbove(years) => Ok(self.age(credential.birth_day(), years, true)),
-            ClaimKind::AgeBelow(years) => Ok(self.age(credential.birth_day(), years, false)),
-            ClaimKind::CountryIsEu => Ok(credential.country().is_eu()),
-            ClaimKind::Role(role) => Ok(credential.role() == role),
-            ClaimKind::Custom => Err(ProofError::UnsupportedClaim),
-        }
-    }
-
-    fn age(&self, birth_day: &BirthDay, years: u8, at_least: bool) -> bool {
-        let cutoff = birthday_cutoff(self.policy.as_of().date(), years);
-        if at_least {
-            birth_day.date() <= cutoff
-        } else {
-            birth_day.date() > cutoff
-        }
     }
 }
 

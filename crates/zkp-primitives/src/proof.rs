@@ -37,9 +37,13 @@ impl Proof {
 
     /// Compiles and proves the complete composition through `prover` once.
     pub fn prove(&self, prover: &dyn Prover) -> Result<Box<dyn ProofArtifact>, ProofError> {
-        prover.prove(&ProofRequest {
+        prover.prove(&self.request())
+    }
+
+    pub(crate) fn request(&self) -> ProofRequest {
+        ProofRequest {
             plan: self.node.plan(),
-        })
+        }
     }
 }
 
@@ -134,6 +138,7 @@ pub(crate) struct DirectProofPlan {
     pub(crate) evidence: Option<Arc<SignedAttributeCredential>>,
 }
 
+#[derive(Clone)]
 pub(crate) enum ProofPlan {
     Direct(DirectProofPlan),
     Conjunction(Box<ProofPlan>, Box<ProofPlan>),

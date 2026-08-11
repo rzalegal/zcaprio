@@ -20,16 +20,15 @@ let passport = issuer.credentials().issue(CredentialAttributes::new(
     AgeSalt::generate(),
     WalletSecret::generate(),
 ));
-let backend = Groth16Backend::setup(VerificationPolicy::new(
+let proof = passport.is(Box::new(AgeIsAbove::new(18)));
+let backend = Groth16Backend::setup(&proof, VerificationPolicy::new(
     BirthDay::parse_iso("2026-08-11").expect("date is valid"),
 )).expect("backend setup succeeds");
-
-let proof = passport.is(Box::new(AgeIsAbove::new(18)));
 let artifact = proof.prove(backend.prover()).expect("proof succeeds");
 assert!(artifact.verify(backend.verifier()).expect("proof verifies").valid());
 ```
 
-The holder cannot create a `SignedAttributeCredential` directly. It comes from `IssuerKeyPair::credentials().issue(...)`, which creates an issuer signature over the age and holder commitments. A holder presenting an underage credential cannot produce an 18+ proof through the public API.
+The holder cannot create a `SignedAttributeCredential` directly. It comes from `IssuerKeyPair::credentials().issue(...)`, which creates an issuer signature over the age, holder, country, and role commitments. The country-and-role commitment is blinded with the holder’s private salt, so its public wire value is not a small attribute lookup table. A holder presenting an underage credential cannot produce an 18+ proof through the public API.
 
 ## Compose credentials without exposing children
 
@@ -58,6 +57,10 @@ let eligibility = passport
 
 The verifier selects the date in `VerificationPolicy`, so age thresholds are evaluated consistently at proof time.
 
-## Educational security boundary
+## What the circuit proves
 
-The Groth16 proof is real and verified with Arkworks BN254/Groth16. This first library cut checks issuer signatures and commitment openings inside the library’s private preflight before producing a proof; it does not yet constrain the Schnorr verification equation inside R1CS. Treat it as an instructional library, not a production credential system.
+`Groth16Backend::setup(&proof, policy)` makes a verifier-held template from the opaque proof recipe. That template fixes the issuer keys, requested claims, and composition shape outside the artifact; a later proof must match it.
+
+Inside R1CS, each credential opens its private age, holder, country, and role commitments, recomputes the signed message, and verifies the Baby-JubJub Schnorr relation. The circuit then evaluates the complete `and()` / `or()` tree and requires only its root to be true. The artifact remains a single Groth16 proof with no public inputs, so it discloses neither the template nor an OR branch.
+
+This is educational, unaudited cryptographic software—not production identity infrastructure.

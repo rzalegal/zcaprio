@@ -34,13 +34,12 @@ fn issued_cross_credential_composition_proves_as_one_opaque_artifact() {
     let passport = credential(&passport_issuer, "2000-01-01", "US", Role::Student);
     let residence = credential(&residence_issuer, "2010-01-01", "DE", Role::Visitor);
     let badge = credential(&badge_issuer, "2010-01-01", "US", Role::Staff);
-    let backend = Groth16Backend::setup(VerificationPolicy::new(day("2026-08-11")))
-        .expect("backend setup succeeds");
-
     let proof = passport
         .is(Box::new(AgeIsAbove::new(18)))
         .and(residence.is(Box::new(CountryIsEu)))
         .or(badge.is(Box::new(RoleIs::new(Role::Staff))));
+    let backend = Groth16Backend::setup(&proof, VerificationPolicy::new(day("2026-08-11")))
+        .expect("backend setup succeeds");
     let artifact = proof.prove(backend.prover()).expect("issued claims prove");
 
     assert!(
@@ -57,15 +56,33 @@ fn issued_cross_credential_composition_proves_as_one_opaque_artifact() {
 }
 
 #[test]
-fn unsigned_age_is_not_provable_through_the_public_credential_api() {
+fn underage_credential_is_not_provable_through_the_public_credential_api() {
     let issuer = IssuerKeyPair::generate();
     let underage = credential(&issuer, "2015-01-01", "US", Role::Visitor);
-    let backend = Groth16Backend::setup(VerificationPolicy::new(day("2026-08-11")))
+    let proof = underage.is(Box::new(AgeIsAbove::new(18)));
+    let backend = Groth16Backend::setup(&proof, VerificationPolicy::new(day("2026-08-11")))
         .expect("backend setup succeeds");
 
-    let result = underage
-        .is(Box::new(AgeIsAbove::new(18)))
-        .prove(backend.prover());
+    let result = proof.prove(backend.prover());
 
     assert!(matches!(result, Err(zcaprio::ProofError::Unprovable)));
+}
+
+#[test]
+fn backend_rejects_a_different_issuer_before_proving() {
+    let issuer = IssuerKeyPair::generate();
+    let other_issuer = IssuerKeyPair::generate();
+    let expected =
+        credential(&issuer, "2000-01-01", "DE", Role::Staff).is(Box::new(AgeIsAbove::new(18)));
+    let other = credential(&other_issuer, "2000-01-01", "DE", Role::Staff)
+        .is(Box::new(AgeIsAbove::new(18)));
+    let backend = Groth16Backend::setup(&expected, VerificationPolicy::new(day("2026-08-11")))
+        .expect("backend setup succeeds");
+
+    let result = other.prove(backend.prover());
+
+    assert!(matches!(
+        result,
+        Err(zcaprio::ProofError::IncompatibleBackend)
+    ));
 }

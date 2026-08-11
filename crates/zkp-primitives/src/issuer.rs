@@ -15,10 +15,16 @@ use rand::{CryptoRng, Rng, SeedableRng, rngs::OsRng};
 use rand_chacha::ChaCha20Rng;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::{AgeCommitment, IssuerKeyFingerprint, OwnerCommitment, PrimitiveError, encoding};
+use crate::{
+    AgeCommitment, AttributeCommitment, IssuerKeyFingerprint, OwnerCommitment, PrimitiveError,
+    encoding,
+};
 
 /// The supported age-credential schema version.
 pub const AGE_CREDENTIAL_SCHEMA_V1: u8 = 1;
+
+/// The schema that signs the age, holder, and non-age attribute commitments.
+pub const AGE_CREDENTIAL_SCHEMA_V2: u8 = 2;
 
 const PARAMETER_SEED: [u8; 32] = *b"ZKPLAB_ISSUER_SCHNORR_PARAMS_V1!";
 
@@ -43,7 +49,7 @@ pub struct IssuerSignature {
     verifier_challenge: JubJubScalar,
 }
 
-/// An issuer-signed credential over age and holder commitments.
+/// An issuer-signed credential over age, holder, and attribute commitments.
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub struct AgeCredential {
     /// The stable fingerprint of the key that issued this credential.
@@ -54,6 +60,8 @@ pub struct AgeCredential {
     pub age_commitment: AgeCommitment,
     /// The commitment that binds the credential to the holder's secret.
     pub owner_commitment: OwnerCommitment,
+    /// The issuer-approved commitment to country and role.
+    pub attribute_commitment: AttributeCommitment,
     /// The issuer's signature over the canonical credential message.
     pub signature: IssuerSignature,
 }
@@ -82,9 +90,14 @@ impl IssuerKeyPair {
         self.public_key.clone()
     }
 
-    /// Issues a schema-v1 credential over the supplied commitments.
-    pub fn issue(&self, age: AgeCommitment, owner: OwnerCommitment) -> AgeCredential {
-        let message = credential_message(age, owner, AGE_CREDENTIAL_SCHEMA_V1);
+    /// Issues a schema-v2 credential over the supplied commitments.
+    pub fn issue(
+        &self,
+        age: AgeCommitment,
+        owner: OwnerCommitment,
+        attributes: AttributeCommitment,
+    ) -> AgeCredential {
+        let message = credential_message(age, owner, attributes, AGE_CREDENTIAL_SCHEMA_V2);
         let signature = loop {
             let random_scalar = JubJubScalar::rand(&mut OsRng);
             let commitment = schnorr_parameters()
@@ -102,9 +115,10 @@ impl IssuerKeyPair {
 
         AgeCredential {
             issuer_key_fingerprint: self.public_key.fingerprint(),
-            schema_version: AGE_CREDENTIAL_SCHEMA_V1,
+            schema_version: AGE_CREDENTIAL_SCHEMA_V2,
             age_commitment: age,
             owner_commitment: owner,
+            attribute_commitment: attributes,
             signature,
         }
     }
@@ -165,7 +179,7 @@ impl IssuerSignature {
 impl AgeCredential {
     /// Verifies schema, issuer identity, and signature integrity.
     pub fn verify(&self, issuer: &IssuerPublicKey) -> Result<(), PrimitiveError> {
-        if self.schema_version != AGE_CREDENTIAL_SCHEMA_V1 {
+        if self.schema_version != AGE_CREDENTIAL_SCHEMA_V2 {
             return Err(PrimitiveError::UnsupportedSchema);
         }
         if issuer.is_identity() {
@@ -178,6 +192,7 @@ impl AgeCredential {
         let message = credential_message(
             self.age_commitment,
             self.owner_commitment,
+            self.attribute_commitment,
             self.schema_version,
         );
         let is_valid = self.signature.is_valid(issuer, &message);
@@ -192,24 +207,26 @@ impl AgeCredential {
 pub fn credential_message(
     age: AgeCommitment,
     owner: OwnerCommitment,
+    attributes: AttributeCommitment,
     schema_version: u8,
-) -> [Fr; 3] {
+) -> [Fr; 4] {
     [
         age.field_element(),
         owner.field_element(),
+        attributes.field_element(),
         Fr::from(schema_version),
     ]
 }
 
-/// Returns the exact Arkworks Schnorr challenge input for a credential relation.
+/// Returns the exact schema-v2 Schnorr challenge input for a credential relation.
 ///
-/// The result is `salt || compressed(commitment) || u64_le(message_length) || message`,
+/// The result is `salt || commitment_x || commitment_y || u64_le(message_length) || message`,
 /// where `commitment = generator * response + public_key * challenge` and `message`
-/// is the three canonical field encodings returned by [`credential_message`].
+/// is the four canonical field encodings returned by [`credential_message`].
 pub fn credential_challenge_transcript(
     key: &IssuerPublicKey,
     signature: &IssuerSignature,
-    message: &[Fr; 3],
+    message: &[Fr; 4],
 ) -> Vec<u8> {
     SchnorrTranscript::from_signature(key, signature, message).bytes()
 }
@@ -305,7 +322,7 @@ impl IssuerSignature {
         })
     }
 
-    fn is_valid(&self, key: &IssuerPublicKey, message: &[Fr; 3]) -> bool {
+    fn is_valid(&self, key: &IssuerPublicKey, message: &[Fr; 4]) -> bool {
         SchnorrTranscript::from_signature(key, self, message)
             .challenge()
             .is_some_and(|challenge| challenge == self.verifier_challenge)
@@ -317,9 +334,10 @@ struct SchnorrTranscript {
 }
 
 impl SchnorrTranscript {
-    fn from_commitment(commitment: EdwardsAffine, message: &[Fr; 3]) -> Self {
+    fn from_commitment(commitment: EdwardsAffine, message: &[Fr; 4]) -> Self {
         let mut bytes = encoding::canonical(&schnorr_parameters().salt);
-        bytes.extend(encoding::canonical(&commitment));
+        bytes.extend(encoding::canonical(&commitment.x));
+        bytes.extend(encoding::canonical(&commitment.y));
         bytes.extend(encoding::canonical(&message_bytes(message).as_slice()));
         Self { bytes }
     }
@@ -327,7 +345,7 @@ impl SchnorrTranscript {
     fn from_signature(
         key: &IssuerPublicKey,
         signature: &IssuerSignature,
-        message: &[Fr; 3],
+        message: &[Fr; 4],
     ) -> Self {
         let mut commitment = schnorr_parameters()
             .generator
@@ -352,7 +370,7 @@ fn schnorr_parameters() -> &'static Parameters<EdwardsProjective, Blake2s256> {
     })
 }
 
-fn message_bytes(message: &[Fr; 3]) -> Vec<u8> {
+fn message_bytes(message: &[Fr; 4]) -> Vec<u8> {
     message
         .iter()
         .flat_map(encoding::canonical)

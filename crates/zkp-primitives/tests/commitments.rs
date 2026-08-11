@@ -1,6 +1,6 @@
 use zcaprio::{
-    AgeCommitment, AgeSalt, BirthDay, OwnerCommitment, VerifierScope, WalletSecret, commit_age,
-    commit_owner, derive_nullifier,
+    AgeCommitment, AgeSalt, BirthDay, Country, OwnerCommitment, Role, VerifierScope, WalletSecret,
+    commit_age, commit_attributes, commit_owner, derive_nullifier,
 };
 
 fn day(value: &str) -> BirthDay {
@@ -36,6 +36,17 @@ fn owner_commitment_requires_the_matching_wallet_secret() {
 
     assert!(commitment.matches(&secret));
     assert!(!commitment.matches(&wallet_secret()));
+}
+
+#[test]
+fn attribute_commitment_requires_the_matching_private_salt() {
+    let salt = age_salt();
+    let country = Country::try_from("DE".to_owned()).expect("fixture country is valid");
+    let commitment = commit_attributes(&country, Role::Staff, &salt);
+
+    assert!(commitment.matches(&country, Role::Staff, &salt));
+    assert!(!commitment.matches(&country, Role::Student, &salt));
+    assert!(!commitment.matches(&country, Role::Staff, &age_salt()));
 }
 
 #[test]

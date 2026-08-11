@@ -4,9 +4,9 @@ use ark_serialize::CanonicalSerialize;
 use rand_chacha::{ChaCha20Rng, rand_core::SeedableRng};
 use serde_json::Value;
 use zcaprio::{
-    AgeCommitment, AgeCredential, AgeSalt, BirthDay, IssuerKeyPair, IssuerSignature,
-    OwnerCommitment, WalletSecret, commit_age, commit_owner, credential_challenge_transcript,
-    credential_message, hex,
+    AgeCommitment, AgeCredential, AgeSalt, AttributeCommitment, BirthDay, IssuerKeyPair,
+    IssuerSignature, OwnerCommitment, WalletSecret, commit_age, commit_owner,
+    credential_challenge_transcript, credential_message, hex,
 };
 
 fn day(value: &str) -> BirthDay {
@@ -59,6 +59,11 @@ fn owner(value: u64) -> OwnerCommitment {
     serde_json::from_str(&format!("\"{}\"", field_hex(value))).expect("owner fixture is canonical")
 }
 
+fn attributes(value: u64) -> AttributeCommitment {
+    serde_json::from_str(&format!("\"{}\"", field_hex(value)))
+        .expect("attribute commitment fixture is canonical")
+}
+
 fn signature(response: u64, challenge: u64) -> IssuerSignature {
     let encoded = format!("\"{}{}\"", scalar_hex(response), scalar_hex(challenge));
     serde_json::from_str(&encoded).expect("signature fixture is canonical")
@@ -67,7 +72,7 @@ fn signature(response: u64, challenge: u64) -> IssuerSignature {
 #[test]
 fn issuer_signature_binds_both_commitments() {
     let issuer = fixed_issuer(43);
-    let credential = issuer.issue(age_commitment(1), owner_commitment(2));
+    let credential = issuer.issue(age_commitment(1), owner_commitment(2), attributes(3));
 
     assert!(credential.verify(&issuer.public_key()).is_ok());
 
@@ -81,11 +86,24 @@ fn issuer_signature_binds_both_commitments() {
 }
 
 #[test]
+fn issuer_signature_binds_the_attribute_commitment() {
+    let issuer = fixed_issuer(45);
+    let credential = issuer.issue(age_commitment(1), owner_commitment(2), attributes(3));
+
+    assert!(credential.verify(&issuer.public_key()).is_ok());
+
+    let mut changed = credential;
+    changed.attribute_commitment = attributes(4);
+
+    assert!(changed.verify(&issuer.public_key()).is_err());
+}
+
+#[test]
 fn modified_schema_invalidates_the_credential() {
     let issuer = fixed_issuer(47);
-    let mut credential = issuer.issue(age_commitment(5), owner_commitment(6));
+    let mut credential = issuer.issue(age_commitment(5), owner_commitment(6), attributes(7));
 
-    credential.schema_version = 2;
+    credential.schema_version = 3;
 
     assert_eq!(
         credential.verify(&issuer.public_key()).unwrap_err().code(),
@@ -96,7 +114,7 @@ fn modified_schema_invalidates_the_credential() {
 #[test]
 fn modified_signature_invalidates_the_credential() {
     let issuer = fixed_issuer(53);
-    let credential = issuer.issue(age_commitment(7), owner_commitment(8));
+    let credential = issuer.issue(age_commitment(7), owner_commitment(8), attributes(9));
     let mut wire = serde_json::to_value(credential).unwrap();
     let signature = wire["signature"].as_str().unwrap();
     let replacement = if signature.starts_with('0') { "1" } else { "0" };
@@ -113,7 +131,7 @@ fn modified_signature_invalidates_the_credential() {
 fn a_different_issuer_key_invalidates_the_credential() {
     let issuer = fixed_issuer(59);
     let other = fixed_issuer(61);
-    let credential = issuer.issue(age_commitment(9), owner_commitment(10));
+    let credential = issuer.issue(age_commitment(9), owner_commitment(10), attributes(11));
 
     assert_eq!(
         credential.verify(&other.public_key()).unwrap_err().code(),
@@ -125,7 +143,7 @@ fn a_different_issuer_key_invalidates_the_credential() {
 fn credential_names_the_fingerprint_of_the_signing_key() {
     let issuer = fixed_issuer(67);
     let public_key = issuer.public_key();
-    let credential = issuer.issue(age_commitment(11), owner_commitment(12));
+    let credential = issuer.issue(age_commitment(11), owner_commitment(12), attributes(13));
 
     assert_eq!(credential.issuer_key_fingerprint, public_key.fingerprint());
 }
@@ -134,7 +152,7 @@ fn credential_names_the_fingerprint_of_the_signing_key() {
 fn credential_and_public_key_round_trip_through_canonical_hex() {
     let issuer = fixed_issuer(71);
     let public_key = issuer.public_key();
-    let credential = issuer.issue(age_commitment(13), owner_commitment(14));
+    let credential = issuer.issue(age_commitment(13), owner_commitment(14), attributes(15));
 
     let public_key_json = serde_json::to_string(&public_key).unwrap();
     let credential_json = serde_json::to_string(&credential).unwrap();
@@ -160,15 +178,15 @@ fn rejects_an_identity_issuer_public_key() {
 }
 
 #[test]
-fn transcript_matches_the_pinned_arkworks_wire_vector() {
+fn transcript_matches_the_pinned_v2_wire_vector() {
     let issuer = fixed_issuer(101);
     let signature = signature(5, 7);
-    let message = credential_message(commitment(11), owner(13), 1);
+    let message = credential_message(commitment(11), owner(13), attributes(17), 2);
 
     let transcript = credential_challenge_transcript(&issuer.public_key(), &signature, &message);
 
     assert_eq!(
         hex(&transcript),
-        "0f821bc0f51832d8a2aefd20d1207c375b38639709ecf683913f7b1336a9ecdea1cdc809be3d48c7e6498086d00260565cac06fd16ed915fd7943a2f74a4312160000000000000000b000000000000000000000000000000000000000000000000000000000000000d000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000"
+        "0f821bc0f51832d8a2aefd20d1207c375b38639709ecf683913f7b1336a9ecdeef107f70581dc87cbe984d2d98e51fed745aa867de8c0945533555ff46f04701a1cdc809be3d48c7e6498086d00260565cac06fd16ed915fd7943a2f74a4312180000000000000000b000000000000000000000000000000000000000000000000000000000000000d0000000000000000000000000000000000000000000000000000000000000011000000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000"
     );
 }

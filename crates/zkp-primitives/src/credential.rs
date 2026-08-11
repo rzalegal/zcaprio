@@ -2,7 +2,7 @@ use blake2::{Blake2s256, Digest};
 
 use crate::{
     AgeCredential, AgeSalt, BirthDay, Claim, Country, IssuerKeyPair, IssuerPublicKey, Proof, Role,
-    WalletSecret, commit_age, commit_owner,
+    WalletSecret, commit_age, commit_attributes, commit_owner,
 };
 
 /// A holder-controlled credential that can produce a lazy proof recipe.
@@ -74,7 +74,8 @@ impl IssuerCredentials<'_> {
     pub fn issue(&self, attributes: CredentialAttributes) -> SignedAttributeCredential {
         let age = commit_age(attributes.birth_day.clone(), &attributes.age_salt);
         let owner = commit_owner(&attributes.wallet_secret);
-        let credential = self.issuer.issue(age, owner);
+        let non_age = commit_attributes(&attributes.country, attributes.role, &attributes.age_salt);
+        let credential = self.issuer.issue(age, owner, non_age);
 
         SignedAttributeCredential {
             birth_day: attributes.birth_day,
@@ -116,16 +117,20 @@ impl SignedAttributeCredential {
         self.role
     }
 
-    pub(crate) fn is_valid(&self) -> bool {
-        self.credential.verify(&self.issuer).is_ok()
-            && self
-                .credential
-                .age_commitment
-                .matches(self.birth_day.clone(), &self.age_salt)
-            && self
-                .credential
-                .owner_commitment
-                .matches(&self.wallet_secret)
+    pub(crate) const fn age_salt(&self) -> ark_bn254::Fr {
+        self.age_salt.field_element()
+    }
+
+    pub(crate) const fn wallet_secret(&self) -> ark_bn254::Fr {
+        self.wallet_secret.field_element()
+    }
+
+    pub(crate) fn issuer(&self) -> &IssuerPublicKey {
+        &self.issuer
+    }
+
+    pub(crate) fn issued(&self) -> &AgeCredential {
+        &self.credential
     }
 }
 

@@ -21,8 +21,8 @@ pub use claim::{
     AgeIsAbove, AgeIsBelow, Claim, ClaimKind, ClaimName, Country, CountryIsEu, Role, RoleIs,
 };
 pub use commitment::{
-    AgeCommitment, AgeSalt, Nullifier, OwnerCommitment, WalletSecret, commit_age, commit_owner,
-    derive_nullifier, protocol_poseidon_parameters,
+    AgeCommitment, AgeSalt, AttributeCommitment, Nullifier, OwnerCommitment, WalletSecret,
+    commit_age, commit_attributes, commit_owner, derive_nullifier, protocol_poseidon_parameters,
 };
 pub use credential::{
     Credential, CredentialAttributes, CredentialHash, IssuerCredentials, SignedAttributeCredential,
@@ -31,9 +31,9 @@ pub use encoding::{bytes, hex};
 pub use error::PrimitiveError;
 pub use groth16::{Groth16Backend, Groth16Prover, Groth16Verifier, VerificationPolicy};
 pub use issuer::{
-    AGE_CREDENTIAL_SCHEMA_V1, AgeCredential, IssuerKeyPair, IssuerPublicKey, IssuerSignature,
-    credential_challenge_transcript, credential_message, issuer_generator_coordinates,
-    issuer_signature_salt,
+    AGE_CREDENTIAL_SCHEMA_V1, AGE_CREDENTIAL_SCHEMA_V2, AgeCredential, IssuerKeyPair,
+    IssuerPublicKey, IssuerSignature, credential_challenge_transcript, credential_message,
+    issuer_generator_coordinates, issuer_signature_salt,
 };
 pub use policy::{AgePolicy, IssuerKeyFingerprint, VerifierScope};
 pub use proof::{Proof, ProofRequest, Prover};
