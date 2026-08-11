@@ -1,4 +1,5 @@
 use crate::PrimitiveError;
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 
 /// Encodes bytes as canonical lowercase hexadecimal.
 pub fn hex(value: &[u8]) -> String {
@@ -25,4 +26,23 @@ pub fn bytes(value: &str) -> Result<Vec<u8>, PrimitiveError> {
                 .ok_or(PrimitiveError::InvalidEncoding)
         })
         .collect()
+}
+
+pub(crate) fn canonical<T: CanonicalSerialize>(value: &T) -> Vec<u8> {
+    let mut encoded = Vec::new();
+    value
+        .serialize_compressed(&mut encoded)
+        .expect("serialization into memory cannot fail");
+    encoded
+}
+
+pub(crate) fn parse<T: CanonicalDeserialize>(value: &str) -> Result<T, PrimitiveError> {
+    let encoded = bytes(value)?;
+    let mut input = encoded.as_slice();
+    let decoded =
+        T::deserialize_compressed(&mut input).map_err(|_| PrimitiveError::InvalidEncoding)?;
+    if !input.is_empty() {
+        return Err(PrimitiveError::InvalidEncoding);
+    }
+    Ok(decoded)
 }
