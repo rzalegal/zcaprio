@@ -3,7 +3,7 @@ use ark_ff::UniformRand;
 use ark_serialize::CanonicalSerialize;
 use rand_chacha::{ChaCha20Rng, rand_core::SeedableRng};
 use serde_json::Value;
-use zkp_primitives::{
+use zcaprio::{
     AgeCommitment, AgeCredential, AgeSalt, BirthDay, IssuerKeyPair, OwnerCommitment, WalletSecret,
     commit_age, commit_owner, hex,
 };
@@ -119,7 +119,7 @@ fn credential_and_public_key_round_trip_through_canonical_hex() {
     let credential_json = serde_json::to_string(&credential).unwrap();
 
     assert_eq!(
-        serde_json::from_str::<zkp_primitives::IssuerPublicKey>(&public_key_json).unwrap(),
+        serde_json::from_str::<zcaprio::IssuerPublicKey>(&public_key_json).unwrap(),
         public_key
     );
     let decoded: AgeCredential = serde_json::from_str(&credential_json).unwrap();

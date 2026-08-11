@@ -2,7 +2,7 @@ use ark_bn254::Fr;
 use ark_ff::UniformRand;
 use ark_serialize::CanonicalSerialize;
 use rand_chacha::{ChaCha20Rng, rand_core::SeedableRng};
-use zkp_primitives::{
+use zcaprio::{
     AgeCommitment, AgeSalt, BirthDay, OwnerCommitment, VerifierScope, WalletSecret, commit_age,
     commit_owner, derive_nullifier, hex,
 };

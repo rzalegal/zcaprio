@@ -1,5 +1,5 @@
 [package]
-name = "zkp-primitives"
+name = "zcaprio"
 version = "0.1.0"
 edition.workspace = true
 

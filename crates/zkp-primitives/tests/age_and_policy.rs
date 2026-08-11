@@ -1,4 +1,4 @@
-use zkp_primitives::{AgePolicy, BirthDay, IssuerKeyFingerprint, RawDemoIdentity, VerifierScope};
+use zcaprio::{AgePolicy, BirthDay, IssuerKeyFingerprint, RawDemoIdentity, VerifierScope};
 
 fn scope(value: &str) -> VerifierScope {
     VerifierScope::new(value.into()).unwrap()
