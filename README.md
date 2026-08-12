@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/rzalegal/zcaprio/actions/workflows/ci.yml/badge.svg)](https://github.com/rzalegal/zcaprio/actions/workflows/ci.yml)
 [![Coverage](https://codecov.io/gh/rzalegal/zcaprio/branch/master/graph/badge.svg)](https://app.codecov.io/gh/rzalegal/zcaprio)
-[![License: MIT](https://img.shields.io/badge/license-MIT-0f766e.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-0f766e.svg)](https://github.com/rzalegal/zcaprio/blob/master/LICENSE)
 [![Rust 2024](https://img.shields.io/badge/rust-2024-edition-7c3aed.svg)](https://doc.rust-lang.org/edition-guide/rust-2024/)
 
 > Compose credential-backed zero-knowledge proofs without composing their disclosures.
@@ -117,4 +117,4 @@ This is educational, unaudited cryptographic software—not production identity 
 
 ## License
 
-Licensed under the [MIT License](LICENSE).
+Licensed under the [MIT License](https://github.com/rzalegal/zcaprio/blob/master/LICENSE).
