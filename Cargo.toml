@@ -1,0 +1,19 @@
+[workspace]
+members = [
+    "crates/zkp-primitives",
+]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+
+[workspace.dependencies]
+ark-bn254 = "0.6"
+ark-crypto-primitives = "0.6"
+ark-ed-on-bn254 = "0.6"
+ark-ec = "0.6"
+ark-ff = "0.6"
+ark-groth16 = "0.6"
+ark-r1cs-std = "0.6"
+ark-relations = "0.6"
+ark-serialize = "0.6"
